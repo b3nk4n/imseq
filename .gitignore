@@ -1,2 +1,4 @@
 tmp/
 out/
+*py[cod]
+*$py.class

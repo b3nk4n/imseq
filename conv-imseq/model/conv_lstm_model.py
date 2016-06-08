@@ -23,26 +23,26 @@ def variable_with_wd(name, shape, stddev, wd):
 
 def convolutions(frame_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, LAMBDA):
     # conv1
-    with tf.variable_scope('conv1') as scope:
-        kernel = variable_with_wd('weights', shape=[5, 5, FRAME_CHANNELS, 32],
+    """with tf.variable_scope('conv1') as scope:
+        kernel = variable_with_wd('weights', shape=[10, 10, FRAME_CHANNELS, 32],
                                              stddev=1e-4, wd=LAMBDA)
         conv = tf.nn.conv2d(frame_input, kernel, [1, 5, 5, 1], padding='SAME')
         biases = tf.get_variable('biases', [32], initializer=tf.constant_initializer(0.0))
         bias = tf.nn.bias_add(conv, biases)
-        conv1 = tf.nn.relu(bias, name=scope.name)
+        conv1 = tf.nn.relu(bias, name=scope.name)"""
          
     # conv2
     with tf.variable_scope('conv2') as scope:
-        kernel = variable_with_wd('weights', shape=[5, 5, 32, 64],
+        kernel = variable_with_wd('weights', shape=[10, 10, FRAME_CHANNELS, 32],
                                              stddev=1e-4, wd=LAMBDA)
-        conv = tf.nn.conv2d(conv1, kernel, [1, 2, 2, 1], padding='SAME')
-        biases = tf.get_variable('biases', [64], initializer=tf.constant_initializer(0.0))
+        conv = tf.nn.conv2d(frame_input, kernel, [1, 2, 2, 1], padding='SAME')
+        biases = tf.get_variable('biases', [32], initializer=tf.constant_initializer(0.0))
         bias = tf.nn.bias_add(conv, biases)
         conv2 = tf.nn.relu(bias, name=scope.name)
         
     # conv3
     with tf.variable_scope('conv3') as scope:
-        kernel = variable_with_wd('weights', shape=[5, 5, 64, 64],
+        kernel = variable_with_wd('weights', shape=[5, 5, 32, 64],
                                              stddev=1e-4, wd=LAMBDA)
         conv = tf.nn.conv2d(conv2, kernel, [1, 2, 2, 1], padding='SAME')
         biases = tf.get_variable('biases', [64], initializer=tf.constant_initializer(0.0))
@@ -56,7 +56,7 @@ def convolutions(frame_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANN
         conv = tf.nn.conv2d(conv3, kernel, [1, 2, 2, 1], padding='SAME')
         biases = tf.get_variable('biases', [96], initializer=tf.constant_initializer(0.0))
         bias = tf.nn.bias_add(conv, biases)
-        conv4 = tf.nn.relu(bias, name=scope.name) # TODO: remove this relu here, before passing it to LSTM?
+        conv4 = tf.nn.tanh(bias, name=scope.name) # TODO: remove this relu here, before passing to LSTM? Or TANH as in paper?
         
     return conv4
 
@@ -67,7 +67,7 @@ def convolutions_transposed(rep_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FR
         kernel = variable_with_wd('weights', shape=[5, 5, 64, 96],
                                              stddev=1e-4, wd=LAMBDA)
         conv = tf.nn.conv2d_transpose(rep_input, kernel, 
-                                      [BATCH_SIZE, FRAME_HEIGHT // 20, FRAME_WIDTH // 20, 64],
+                                      [BATCH_SIZE, FRAME_HEIGHT // 4, FRAME_WIDTH // 4, 64],
                                       [1, 2, 2, 1], padding='SAME')
         biases = tf.get_variable('biases', [64], initializer=tf.constant_initializer(0.0))
         bias = tf.nn.bias_add(conv, biases)
@@ -75,46 +75,49 @@ def convolutions_transposed(rep_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FR
     
     # conv_tp5
     with tf.variable_scope('conv_tp5') as scope:
-        kernel = variable_with_wd('weights', shape=[5, 5, 64, 64],
+        kernel = variable_with_wd('weights', shape=[5, 5, 32, 64],
                                              stddev=1e-4, wd=LAMBDA)
         conv = tf.nn.conv2d_transpose(conv_tp4, kernel,
-                                      [BATCH_SIZE, FRAME_HEIGHT // 10, FRAME_WIDTH // 10, 64],
+                                      [BATCH_SIZE, FRAME_HEIGHT // 2, FRAME_WIDTH // 2, 32],
                                       [1, 2, 2, 1], padding='SAME')
-        biases = tf.get_variable('biases', [64], initializer=tf.constant_initializer(0.0))
+        biases = tf.get_variable('biases', [32], initializer=tf.constant_initializer(0.0))
         bias = tf.nn.bias_add(conv, biases)
         conv_tp5 = tf.nn.relu(bias, name=scope.name)
     
     # conv_tp6
     with tf.variable_scope('conv_tp6') as scope:
-        kernel = variable_with_wd('weights', shape=[5, 5, 32, 64],
+        kernel = variable_with_wd('weights', shape=[10, 10, FRAME_CHANNELS, 32],
                                              stddev=1e-4, wd=LAMBDA)
         conv = tf.nn.conv2d_transpose(conv_tp5, kernel,
-                                      [BATCH_SIZE, FRAME_HEIGHT // 5, FRAME_WIDTH // 5, 32],
+                                      [BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS],
                                       [1, 2, 2, 1], padding='SAME')
-        biases = tf.get_variable('biases', [32], initializer=tf.constant_initializer(0.0))
-        conv_tp6 = tf.nn.relu(tf.nn.bias_add(conv, biases))
+        biases = tf.get_variable('biases', [FRAME_CHANNELS], initializer=tf.constant_initializer(0.0))
+        conv_tp6 = tf.nn.bias_add(conv, biases) # AddRelu!
 
     # conv_tp7
-    with tf.variable_scope('conv_tp7') as scope:
+    """with tf.variable_scope('conv_tp7') as scope:
         kernel = variable_with_wd('weights', shape=[5, 5, 3, 32],
                                              stddev=1e-4, wd=LAMBDA)
         conv = tf.nn.conv2d_transpose(conv_tp6, kernel,
                                       [BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS],
                                       [1, 5, 5, 1], padding='SAME')
         biases = tf.get_variable('biases', [3], initializer=tf.constant_initializer(0.0))
-        conv_tp7 = tf.nn.bias_add(conv, biases) # no ReLu here
+        conv_tp7 = tf.nn.bias_add(conv, biases) # no ReLu here"""
         
-    return conv_tp7
+    return conv_tp6
 
 
 def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
-    LSTM_SIZE = FRAME_HEIGHT * FRAME_WIDTH * 96 // 4 // 4 // 4 // 25
+    LSTM_SIZE = FRAME_HEIGHT * FRAME_WIDTH * 96 // 4 // 4 // 4  # // 25
     LSTM_LAYERS = 1
     
     # LSTM-Encoder:
     with tf.variable_scope('LSTM'):
         lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE)
-        multi_lstm = tf.nn.rnn_cell.MultiRNNCell([lstm] * LSTM_LAYERS)
+        if LSTM_SIZE > 1:
+            multi_lstm = tf.nn.rnn_cell.MultiRNNCell([lstm] * LSTM_LAYERS)
+        else:
+            multi_lstm = lstm
         initial_state = state = multi_lstm.zero_state(BATCH_SIZE, tf.float32)
         for t_step in xrange(INPUT_SEQ_LENGTH):
             if t_step > 0:
@@ -128,12 +131,10 @@ def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNE
             conv_output_reshaped = tf.reshape(conv_output, [BATCH_SIZE, -1])
             output, state = multi_lstm(conv_output_reshaped, state)
     # exit of reuse-variable scope
-           
     learned_representation = state
     output_representation = tf.reshape(output, shape_before_lstm)
 
     prediction = convolutions_transposed(output_representation, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, LAMBDA)
-
     return prediction
 
     
@@ -150,10 +151,10 @@ def loss(model_output, next_frame):
     # Calculate the average L2 loss across the batch.
     # squeezed_next_frame = tf.squeeze(next_frame)
     # l2loss = tf.nn.l2_loss(model_output - squeezed_next_frame)
-    # l2loss = tf.sqrt(tf.reduce_sum(tf.pow(tf.sub(
-    #         model_output, next_frame), 2)))
-    mse_loss = tf.reduce_mean(tf.reduce_sum(tf.square(model_output - next_frame), reduction_indices=[1, 2, 3]))
-    tf.add_to_collection('losses', mse_loss)
+    euc_loss = tf.sqrt(tf.reduce_sum(tf.pow(tf.sub(
+                     model_output, next_frame), 2)))
+    # mse_loss = tf.reduce_mean(tf.reduce_sum(tf.square(model_output - next_frame), reduction_indices=[1, 2, 3]))
+    tf.add_to_collection('losses', euc_loss)
 
     # The total loss is defined as the L2 loss plus all of the weight
     # decay terms (L2 loss).
