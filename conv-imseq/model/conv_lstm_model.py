@@ -59,8 +59,9 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
     return conv3t
 
 
-def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
-    LSTM_SIZE = FRAME_HEIGHT * FRAME_WIDTH * 96 // 4 // 4 // 4
+def inference(stacked_input, BATCH_SIZE, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
+    static_input_shape = stacked_input.get_shape().as_list()
+    LSTM_SIZE = static_input_shape[1] * static_input_shape[2] * 96 // 4 // 4 // 4
     LSTM_LAYERS = 1
     
     # LSTM-Encoder:

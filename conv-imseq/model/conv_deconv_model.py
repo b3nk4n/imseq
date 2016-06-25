@@ -7,7 +7,7 @@ import tensortools as tt
 import tensorflow as tf
 
 
-def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
+def inference(stacked_input, BATCH_SIZE, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
     # conv1  
     conv1 = tt.network.conv2d("conv1", stacked_input,
                               64, 5, 5, 2, 2,
