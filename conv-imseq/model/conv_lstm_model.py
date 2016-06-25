@@ -7,7 +7,7 @@ import tensortools as tt
 import tensorflow as tf
 
 
-def encoder(frame_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, LAMBDA):  
+def encoder(frame_input, LAMBDA):  
     # conv1  
     conv1 = tt.network.conv2d("conv1", frame_input,
                               32, 10, 10, 2, 2,
@@ -35,26 +35,23 @@ def encoder(frame_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, 
     return conv3
 
 
-def decoder(rep_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, LAMBDA):
+def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
     conv1t = tt.network.conv2d_transpose("deconv1", rep_input,
-                                         64, BATCH_SIZE,
-                                         5, 5, 2, 2,
+                                         64, 5, 5, 2, 2,
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                          activation=tf.nn.relu)
     
     conv2t = tt.network.conv2d_transpose("deconv2", conv1t,
-                                         32, BATCH_SIZE,
-                                         5, 5, 2, 2,
+                                         32, 5, 5, 2, 2,
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                          activation=tf.nn.relu)
     
     conv3t = tt.network.conv2d_transpose("deconv3", conv2t,
-                                         FRAME_CHANNELS, BATCH_SIZE,
-                                         10, 10, 2, 2,
+                                         FRAME_CHANNELS, 10, 10, 2, 2,
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
@@ -79,7 +76,7 @@ def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNE
                 tf.get_variable_scope().reuse_variables()
 
             conv_output = encoder(stacked_input[:, :, :, (t_step * FRAME_CHANNELS):(t_step + 1) * FRAME_CHANNELS], 
-                                       BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, LAMBDA)
+                                  LAMBDA)
                 
             # state value is updated after processing each batch of sequences
             shape_before_lstm = tf.shape(conv_output)
@@ -89,7 +86,7 @@ def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNE
     learned_representation = state
     output_representation = tf.reshape(output, shape_before_lstm)
 
-    prediction = decoder(output_representation, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNELS, LAMBDA)
+    prediction = decoder(output_representation, FRAME_CHANNELS, LAMBDA)
     return prediction
 
     

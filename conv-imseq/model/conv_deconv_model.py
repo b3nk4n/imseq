@@ -34,7 +34,7 @@ def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNE
     
     # conv_tp4
     conv_tp4 = tt.network.conv2d_transpose("conv_tp4", conv3,
-                                           128, BATCH_SIZE, 5, 5, 2, 2,
+                                           128, 5, 5, 2, 2,
                                            weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                            bias=0.1,
                                            regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
@@ -42,7 +42,7 @@ def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNE
     
     # conv_tp5  
     conv_tp5 = tt.network.conv2d_transpose("conv_tp5", conv_tp4,
-                                           64, BATCH_SIZE, 5, 5, 2, 2,
+                                           64, 5, 5, 2, 2,
                                            weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                            bias=0.1,
                                            regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
@@ -50,7 +50,7 @@ def inference(stacked_input, BATCH_SIZE, FRAME_HEIGHT, FRAME_WIDTH, FRAME_CHANNE
     
     # conv_tp6       
     conv_tp6 = tt.network.conv2d_transpose("conv_tp6", conv_tp5,
-                                           FRAME_CHANNELS, BATCH_SIZE, 5, 5, 2, 2,
+                                           FRAME_CHANNELS, 5, 5, 2, 2,
                                            weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                            bias=0.1,
                                            regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
