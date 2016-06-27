@@ -59,7 +59,8 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
     return conv3t
 
 
-def inference(stacked_input, BATCH_SIZE, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
+def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
+    batch_size = tf.shape(stacked_input)[0]
     static_input_shape = stacked_input.get_shape().as_list()
     LSTM_SIZE = static_input_shape[1] * static_input_shape[2] * 96 // 4 // 4 // 4
     LSTM_LAYERS = 1
@@ -71,7 +72,7 @@ def inference(stacked_input, BATCH_SIZE, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBD
             multi_lstm = tf.nn.rnn_cell.MultiRNNCell([lstm] * LSTM_LAYERS)
         else:
             multi_lstm = lstm
-        initial_state = state = multi_lstm.zero_state(BATCH_SIZE, tf.float32)
+        initial_state = state = multi_lstm.zero_state(batch_size, tf.float32)
         for t_step in xrange(INPUT_SEQ_LENGTH):
             if t_step > 0:
                 tf.get_variable_scope().reuse_variables()
@@ -81,7 +82,7 @@ def inference(stacked_input, BATCH_SIZE, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBD
                 
             # state value is updated after processing each batch of sequences
             shape_before_lstm = tf.shape(conv_output)
-            conv_output_reshaped = tf.reshape(conv_output, [BATCH_SIZE, -1])
+            conv_output_reshaped = tf.reshape(conv_output, [-1, LSTM_SIZE])
             output, state = multi_lstm(conv_output_reshaped, state)
     # exit of reuse-variable scope
     learned_representation = state
