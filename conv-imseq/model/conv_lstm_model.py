@@ -15,6 +15,7 @@ def encoder(frame_input, LAMBDA):
                               bias=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                               activation=tf.nn.relu)
+    tt.board.activation_summary(conv1)
     
     # conv2  
     conv2 = tt.network.conv2d("conv2", conv1,
@@ -23,6 +24,7 @@ def encoder(frame_input, LAMBDA):
                               bias=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                               activation=tf.nn.relu)
+    tt.board.activation_summary(conv2)
     
     # conv3  
     conv3 = tt.network.conv2d("conv3", conv2,
@@ -31,6 +33,7 @@ def encoder(frame_input, LAMBDA):
                               bias=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                               activation=tf.nn.tanh) # a paper proposes to use TANH here
+    tt.board.activation_summary(conv3)
         
     return conv3
 
@@ -42,6 +45,7 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
                                          bias=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                          activation=tf.nn.relu)
+    tt.board.activation_summary(conv1t)
     
     conv2t = tt.network.conv2d_transpose("deconv2", conv1t,
                                          32, 5, 5, 2, 2,
@@ -49,12 +53,14 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
                                          bias=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                          activation=tf.nn.relu)
+    tt.board.activation_summary(conv2t)
     
     conv3t = tt.network.conv2d_transpose("deconv3", conv2t,
                                          FRAME_CHANNELS, 10, 10, 2, 2,
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
+    tt.board.activation_summary(conv3t)
         
     return conv3t
 
@@ -66,7 +72,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
     LSTM_LAYERS = 1
     
     # LSTM-Encoder:
-    with tf.variable_scope('LSTM'):
+    with tf.variable_scope('lstm'):
         lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE)
         if LSTM_SIZE > 1:
             multi_lstm = tf.nn.rnn_cell.MultiRNNCell([lstm] * LSTM_LAYERS)
@@ -96,16 +102,16 @@ def loss(model_output, next_frame):
     """Add L2Loss to all the trainable variables.
     Add summary for "Loss" and "Loss/avg".
     Args:
-        logits: Logits from inference().
-        labels: Labels from distorted_inputs or inputs(). 1-D tensor
+        model_output: Output from inference() function.
+        next_frame: Labels from distorted_inputs or inputs(). 1-D tensor
             of shape [batch_size]
     Returns:
         Loss tensor of type float.
     """
-    # Calculate the average L2 loss across the batch
-    euc_loss = tf.sqrt(tf.reduce_sum(tf.pow(tf.sub(
-            model_output, next_frame), 2)))
-    reg_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+    # Calculate the average euc-loss across the batch
+    loss = tf.sqrt(tf.reduce_sum(tf.pow(tf.sub(
+            model_output, next_frame), 2)), name="euc_loss")
+    reg_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES), name="reg_loss")
     
-    total_loss = euc_loss + reg_loss
-    return total_loss
+    total_loss = tf.add(loss, reg_loss, name="total_loss")
+    return total_loss, loss

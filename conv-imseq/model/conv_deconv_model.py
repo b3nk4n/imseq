@@ -15,6 +15,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
                               bias=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                               activation=tf.nn.relu)
+    tt.board.activation_summary(conv1)
     
     # conv2  
     conv2 = tt.network.conv2d("conv2", conv1,
@@ -23,6 +24,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
                               bias=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                               activation=tf.nn.relu)
+    tt.board.activation_summary(conv2)
     
     # conv3       
     conv3 = tt.network.conv2d("conv3", conv2,
@@ -31,6 +33,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
                               bias=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                               activation=tf.nn.relu)
+    tt.board.activation_summary(conv2)
     
     # conv_tp4
     conv_tp4 = tt.network.conv2d_transpose("conv_tp4", conv3,
@@ -39,6 +42,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
                                            bias=0.1,
                                            regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                            activation=tf.nn.relu)
+    tt.board.activation_summary(conv_tp4)
     
     # conv_tp5  
     conv_tp5 = tt.network.conv2d_transpose("conv_tp5", conv_tp4,
@@ -47,6 +51,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
                                            bias=0.1,
                                            regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                            activation=tf.nn.relu)
+    tt.board.activation_summary(conv_tp5)
     
     # conv_tp6       
     conv_tp6 = tt.network.conv2d_transpose("conv_tp6", conv_tp5,
@@ -55,6 +60,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
                                            bias=0.1,
                                            regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                            activation=tf.nn.relu)
+    tt.board.activation_summary(conv_tp6)
         
     return conv_tp6
 
@@ -63,16 +69,16 @@ def loss(model_output, next_frame):
     """Add L2Loss to all the trainable variables.
     Add summary for "Loss" and "Loss/avg".
     Args:
-        logits: Logits from inference().
-        labels: Labels from distorted_inputs or inputs(). 1-D tensor
+        model_output: Output from inference() function.
+        next_frame: Labels from distorted_inputs or inputs(). 1-D tensor
             of shape [batch_size]
     Returns:
         Loss tensor of type float.
     """
-    # Calculate the average L2 loss across the batch
-    euc_loss = tf.sqrt(tf.reduce_sum(tf.pow(tf.sub(
-            model_output, next_frame), 2)))
-    reg_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+    # Calculate the average euc-loss across the batch
+    loss = tf.sqrt(tf.reduce_sum(tf.pow(tf.sub(
+            model_output, next_frame), 2)), name="euc_loss")
+    reg_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES), name="reg_loss")
     
-    total_loss = euc_loss + reg_loss
-    return total_loss
+    total_loss = tf.add(loss, reg_loss, name="total_loss")
+    return total_loss, loss
