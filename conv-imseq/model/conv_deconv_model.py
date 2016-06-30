@@ -33,7 +33,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
                               bias=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                               activation=tf.nn.relu)
-    tt.board.activation_summary(conv2)
+    tt.board.activation_summary(conv3)
     
     # conv_tp4
     conv_tp4 = tt.network.conv2d_transpose("conv_tp4", conv3,
