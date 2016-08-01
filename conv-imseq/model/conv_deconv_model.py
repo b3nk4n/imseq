@@ -13,7 +13,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
         conv1 = tt.network.conv2d("conv1", stacked_input,
                                   64, 5, 5, 2, 2,
                                   weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                  bias=0.1,
+                                  bias_init=0.1,
                                   regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                   activation=tf.nn.relu)
         tt.board.activation_summary(conv1)
@@ -23,7 +23,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
         conv2 = tt.network.conv2d("conv2", conv1,
                                   128, 5, 5, 2, 2,
                                   weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                  bias=0.1,
+                                  bias_init=0.1,
                                   regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                   activation=tf.nn.relu)
         tt.board.activation_summary(conv2)
@@ -33,7 +33,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
         conv3 = tt.network.conv2d("conv3", conv2,
                                   256, 5, 5, 2, 2,
                                   weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                  bias=0.1,
+                                  bias_init=0.1,
                                   regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                   activation=tf.nn.relu)
         tt.board.activation_summary(conv3)
@@ -44,7 +44,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
         conv_tp4 = tt.network.conv2d_transpose("conv_tp4", conv3,
                                                128, 5, 5, 2, 2,
                                                weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                               bias=0.1,
+                                               bias_init=0.1,
                                                regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                                activation=tf.nn.relu)
         tt.board.activation_summary(conv_tp4)
@@ -53,7 +53,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
         conv_tp5 = tt.network.conv2d_transpose("conv_tp5", conv_tp4,
                                                64, 5, 5, 2, 2,
                                                weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                               bias=0.1,
+                                               bias_init=0.1,
                                                regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                                activation=tf.nn.relu)
         tt.board.activation_summary(conv_tp5)
@@ -62,7 +62,7 @@ def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
         conv_tp6 = tt.network.conv2d_transpose("conv_tp6", conv_tp5,
                                                FRAME_CHANNELS, 5, 5, 2, 2,
                                                weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                               bias=0.1,
+                                               bias_init=0.1,
                                                regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
                                                activation=tf.nn.relu)
         tt.board.activation_summary(conv_tp6)
