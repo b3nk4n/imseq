@@ -53,8 +53,7 @@ def inference(input_seq, pred_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
             tf.get_variable_scope().reuse_variables()
         
     
-    model_outputs = tf.pack(dec_outputs, axis=1) # TODO: use this in version 0.10
-    # model_outputs = tf.concat(1, [tf.expand_dims(t, 1) for t in dec_outputs])
+    model_outputs = tf.pack(dec_outputs, axis=1)
     
     return model_outputs
 
