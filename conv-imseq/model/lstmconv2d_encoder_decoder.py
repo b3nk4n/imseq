@@ -5,7 +5,7 @@ import tensorflow as tf
 def conv2d_lstm(image_list, initial_state):
     LSTM_LAYERS = 1
     LSTM_KSIZE = 7
-    LSTM_FILTERS = 128
+    LSTM_FILTERS = 32
     LSTM_HEIGHT = 64
     LSTM_WIDTH = 64
     
@@ -14,13 +14,13 @@ def conv2d_lstm(image_list, initial_state):
                                                  device='/cpu:0')
     if LSTM_LAYERS > 1:
         lstm_cell = tt.recurrent.MultiRNNConv2DCell([lstm_cell] * LSTM_LAYERS)
-
+        
     # Get lstm cell output
     outputs, states = tt.recurrent.rnn_conv2d(lstm_cell, image_list, initial_state=initial_state)
     return outputs, states    
     
 
-def inference(input_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
+def inference(input_seq, pred_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
     # input_seq: [batch_size, n_steps, h, w, c]
     batch_size = tf.shape(input_seq)[0]
     static_input_shape = input_seq.get_shape().as_list()
@@ -29,15 +29,20 @@ def inference(input_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
     input_seq = [tf.squeeze(i, (0,)) for i in input_seq]
     
     with tf.variable_scope("encoder-lstm"):
-        enc_outputs, enc_states = conv2d_lstm(input_seq, None)
+        enc_outputs, enc_state = conv2d_lstm(input_seq, None)
     
-    learned_representation = enc_states[-1]
-    
+    # conditional future predictor
+    # on training:  use ground truth previous frames
+    # on test/eval: use previously generated frame (TODO!!!)  
+    static_pred_shape = pred_seq.get_shape().as_list()
+    pred_seq = tf.transpose(pred_seq, [1, 0, 2, 3, 4])
+    pred_seq = tf.split(0, static_pred_shape[1], pred_seq)
+    pred_seq_list = [input_seq[-1]]
+    for i in xrange(static_pred_shape[1] - 1):
+        pred_seq_list.append(tf.squeeze(pred_seq[i], (0,)))
+        
     with tf.variable_scope('decoder-lstm'):
-        dec_outputs, _ = conv2d_lstm(enc_outputs, None)
-        # what to use as input here? copy state not working in Conv2DLSTM?
-        # TODO: use learned_representation as init state!
-        # TODO: what to use an inputs?
+        dec_outputs, _ = conv2d_lstm(pred_seq_list, enc_state)
         
         for i in xrange(len(dec_outputs)):
             dec_outputs[i] = tt.network.conv2d("Conv-Reduce", dec_outputs[i], 1,
