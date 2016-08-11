@@ -5,7 +5,7 @@ import tensorflow as tf
 def _create_lstm_cell():
     LSTM_LAYERS = 1
     LSTM_KSIZE = 7
-    LSTM_FILTERS = 32
+    LSTM_FILTERS = 128
     LSTM_HEIGHT = 64
     LSTM_WIDTH = 64
     lstm_cell = tt.recurrent.BasicLSTMConv2DCell(LSTM_KSIZE, LSTM_KSIZE,
@@ -24,7 +24,7 @@ def _conv2d_lstm(image_list, initial_state):
     return outputs, states      
 
 
-def inference(input_seq, pred_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA): # TODO: make INPUT_SEQ_LENGTH ==> OUTPUT_SEQ_LENGT param?
+def inference(input_seq, pred_seq, FRAME_CHANNELS, OUTPUT_SEQ_LENGTH, LAMBDA): # TODO: INPUT => OUTPUT SEQ LENGTH
     # input_seq: [batch_size, n_steps, h, w, c]
     batch_size = tf.shape(input_seq)[0]
     static_input_shape = input_seq.get_shape().as_list()
@@ -35,7 +35,6 @@ def inference(input_seq, pred_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA): # 
     with tf.variable_scope("encoder-lstm"):
         enc_outputs, enc_state = _conv2d_lstm(input_seq, None)
     
-    # conditional future predictor
     if pred_seq is not None:
         # on training:  use ground truth previous frames 
         static_pred_shape = pred_seq.get_shape().as_list()
@@ -56,7 +55,8 @@ def inference(input_seq, pred_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA): # 
                                                    regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
                 tf.get_variable_scope().reuse_variables()
 
-        model_outputs = tf.pack(dec_outputs, axis=1)
+            return tf.pack(dec_outputs, axis=1)
+        
     else:
         # on test/eval: use previously generated frame
         with tf.variable_scope('decoder-lstm') as varscope:
@@ -65,7 +65,7 @@ def inference(input_seq, pred_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA): # 
             state = enc_state
             dec_outputs = []
             
-            for time in xrange(INPUT_SEQ_LENGTH): # FIXME output seq length
+            for time in xrange(OUTPUT_SEQ_LENGTH):
                 if time > 0:
                         varscope.reuse_variables()
                         
@@ -80,9 +80,7 @@ def inference(input_seq, pred_seq, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA): # 
                 _input = dec_output
                 dec_outputs.append(dec_output)
 
-            model_outputs = tf.pack(dec_outputs, axis=1)
-    
-    return model_outputs
+            return tf.pack(dec_outputs, axis=1)
 
     
 def loss(model_outputs, next_frames):
