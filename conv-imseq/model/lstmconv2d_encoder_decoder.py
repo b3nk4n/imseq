@@ -5,11 +5,12 @@ import tensorflow as tf
 def _create_lstm_cell():
     LSTM_LAYERS = 1
     LSTM_KSIZE = 7
-    LSTM_FILTERS = 128
+    LSTM_FILTERS = 64
     LSTM_HEIGHT = 64
     LSTM_WIDTH = 64
-    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(LSTM_KSIZE, LSTM_KSIZE,
-                                                 LSTM_FILTERS, LSTM_HEIGHT, LSTM_WIDTH,
+    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(LSTM_HEIGHT, LSTM_WIDTH, LSTM_FILTERS,
+                                                 ksize_input=(LSTM_KSIZE, LSTM_KSIZE),
+                                                 ksize_hidden=(LSTM_KSIZE, LSTM_KSIZE),
                                                  device='/cpu:0')
     if LSTM_LAYERS > 1:
         lstm_cell = tt.recurrent.MultiRNNConv2DCell([lstm_cell] * LSTM_LAYERS)
@@ -49,7 +50,7 @@ def inference(input_seq, pred_seq, FRAME_CHANNELS, OUTPUT_SEQ_LENGTH, LAMBDA): #
 
             for i in xrange(len(dec_outputs)):
                 dec_outputs[i] = tt.network.conv2d("Conv-Reduce", dec_outputs[i], 1,
-                                                   3, 3, 1, 1,
+                                                   (1, 1), (1, 1),
                                                    weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                                    bias_init=0.1,
                                                    regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
@@ -73,7 +74,7 @@ def inference(input_seq, pred_seq, FRAME_CHANNELS, OUTPUT_SEQ_LENGTH, LAMBDA): #
                     (output, state) = lstm_cell(input_, state)
 
                 dec_output = tt.network.conv2d("Conv-Reduce", output, 1,
-                                               3, 3, 1, 1,
+                                               (1, 1), (1, 1),
                                                weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                                bias_init=0.1,
                                                regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))

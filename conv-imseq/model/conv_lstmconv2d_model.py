@@ -10,7 +10,7 @@ import tensorflow as tf
 def encoder(frame_input, LAMBDA):  
     # conv1  
     conv1 = tt.network.conv2d("conv1", frame_input,
-                              128, 9, 9, 2, 2,
+                              128, (9, 9), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
@@ -19,7 +19,7 @@ def encoder(frame_input, LAMBDA):
     
     # conv2  
     conv2 = tt.network.conv2d("conv2", conv1,
-                              128, 5, 5, 2, 2,
+                              128, (5, 5), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
@@ -28,7 +28,7 @@ def encoder(frame_input, LAMBDA):
     
     # conv3  
     conv3 = tt.network.conv2d("conv3", conv2,
-                              128, 5, 5, 2, 2,
+                              128, (5, 5), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
@@ -40,7 +40,7 @@ def encoder(frame_input, LAMBDA):
 
 def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
     conv1t = tt.network.conv2d_transpose("deconv1", rep_input,
-                                         128, 5, 5, 2, 2,
+                                         128, (5, 5), (2, 2),
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias_init=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
@@ -48,7 +48,7 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
     tt.board.activation_summary(conv1t)
     
     conv2t = tt.network.conv2d_transpose("deconv2", conv1t,
-                                         128, 5, 5, 2, 2,
+                                         128, (5, 5), (2, 2),
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias_init=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
@@ -56,7 +56,7 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
     tt.board.activation_summary(conv2t)
     
     conv3t = tt.network.conv2d_transpose("deconv3", conv2t,
-                                         FRAME_CHANNELS, 9, 9, 2, 2,
+                                         FRAME_CHANNELS, (9, 9), (2, 2),
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias_init=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
@@ -67,13 +67,15 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
 
 def conv2d_lstm(conv_image_sequence):
     LSTM_LAYERS = 1
-    LSTM_KSIZE = 7
+    LSTM_I_KSIZE = 5
+    LSTM_H_KSIZE = 7
     LSTM_FILTERS = 128
     LSTM_HEIGHT = 30
     LSTM_WIDTH = 40
     
-    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(LSTM_KSIZE, LSTM_KSIZE,
-                                                 LSTM_FILTERS, LSTM_HEIGHT, LSTM_WIDTH)
+    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(LSTM_HEIGHT, LSTM_WIDTH, LSTM_FILTERS,
+                                                 ksize_input=(LSTM_I_KSIZE, LSTM_I_KSIZE),
+                                                 ksize_hidden=(LSTM_H_KSIZE, LSTM_H_KSIZE))
     if LSTM_LAYERS > 1:
         lstm_cell = tt.recurrent.MultiRNNConv2DCell([lstm_cell] * LSTM_LAYERS)
 
