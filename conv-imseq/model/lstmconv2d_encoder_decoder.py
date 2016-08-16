@@ -76,24 +76,19 @@ class LSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
             lstm_cell = _create_lstm_cell(self.input_shape[2], self.input_shape[3],
                                           self._lstm_layers, self._lstm_filters, 
                                           self._lstm_ksize_input, self._lstm_ksize_hidden)
-            input_ = input_seq[-1]
-            state = enc_state
-            dec_outputs = []
-
-            for t in xrange(self._targets.get_shape()[1]):
-                if t > 0:
-                        varscope.reuse_variables()
-
-                with tf.variable_scope("RNNConv2D"): 
-                    (output, state) = lstm_cell(input_, state)
-
-                dec_output = tt.network.conv2d("Conv-Reduce", output, self.input_shape[4],
-                                               (1, 1), (1, 1),
-                                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                               bias_init=0.1,
-                                               regularizer=tf.contrib.layers.l2_regularizer(self.reg_lambda))
-                _input = dec_output
-                dec_outputs.append(dec_output)
+            
+            def postprocessor(x):
+                return tt.network.conv2d("Conv-Reduce", x, self.input_shape[4],
+                                         (1, 1), (1, 1),
+                                         weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
+                                         bias_init=0.1,
+                                         regularizer=tf.contrib.layers.l2_regularizer(self.reg_lambda),
+                                         device='/cpu:0')
+            
+            dec_outputs, _ = tt.recurrent.rnn_conv2d_roundabout(lstm_cell, input_seq[-1],
+                                                                sequence_length=self.output_shape[1],
+                                                                initial_state=enc_state,
+                                                                output_postprocessor=postprocessor)
 
             return tf.pack(dec_outputs, axis=1)
 
