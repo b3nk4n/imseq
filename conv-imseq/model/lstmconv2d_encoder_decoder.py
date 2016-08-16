@@ -2,104 +2,106 @@ import tensortools as tt
 import tensorflow as tf
 
 
-def _create_lstm_cell():
-    LSTM_LAYERS = 1
-    LSTM_KSIZE = 7
-    LSTM_FILTERS = 64
-    LSTM_HEIGHT = 64
-    LSTM_WIDTH = 64
-    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(LSTM_HEIGHT, LSTM_WIDTH, LSTM_FILTERS,
-                                                 ksize_input=(LSTM_KSIZE, LSTM_KSIZE),
-                                                 ksize_hidden=(LSTM_KSIZE, LSTM_KSIZE),
+def _create_lstm_cell(height, width, layers, filters, ksize_input, ksize_hidden):
+    """Helper method to create a LSTMConv2D cell with multiple layers with
+       variables bound to CPU memory.
+    """
+    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(height, width, filters,
+                                                 ksize_input=ksize_input,
+                                                 ksize_hidden=ksize_hidden,
                                                  device='/cpu:0')
-    if LSTM_LAYERS > 1:
-        lstm_cell = tt.recurrent.MultiRNNConv2DCell([lstm_cell] * LSTM_LAYERS)
+    if layers > 1:
+        lstm_cell = tt.recurrent.MultiRNNConv2DCell([lstm_cell] * layers)
     return lstm_cell
+
+
+class LSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
+    """Model that uses the LSTM decoder/encoder architecture,
+       but with LSTMConv2D instead of normal LSTM cells.
+       
+       References: N. Srivastava et al.
+                   http://arxiv.org/abs/1502.04681
+    """
+    def __init__(self, inputs, targets, reg_lambda=5e-4,
+                 lstm_layers=1, lstm_ksize_input=(7, 7), lstm_ksize_hidden=(7,7),
+                 lstm_filters=64):
+        self._lstm_layers = lstm_layers
+        self._lstm_ksize_input = lstm_ksize_input
+        self._lstm_ksize_hidden = lstm_ksize_hidden
+        self._lstm_filters = lstm_filters
+        super(LSTMConv2DDecoderEncoderModel, self).__init__(inputs, targets, reg_lambda)
     
+    @tt.utils.attr.lazy_property
+    def predictions(self):
+        input_seq = tf.transpose(self._inputs, [1, 0, 2, 3, 4])
+        input_seq = tf.split(0, self.input_shape[1], input_seq)
+        input_seq = [tf.squeeze(i, (0,)) for i in input_seq]
 
-def _conv2d_lstm(image_list, initial_state):
-    lstm_cell = _create_lstm_cell()
-        
-    # Get lstm cell output
-    outputs, states = tt.recurrent.rnn_conv2d(lstm_cell, image_list, initial_state=initial_state)
-    return outputs, states      
+        with tf.variable_scope("encoder-lstm"):
+            lstm_cell = _create_lstm_cell(self.input_shape[2], self.input_shape[3],
+                                          self._lstm_layers, self._lstm_filters, 
+                                          self._lstm_ksize_input, self._lstm_ksize_hidden)
+            _, enc_state = tt.recurrent.rnn_conv2d(lstm_cell, input_seq, initial_state=None)  
 
+        '''if pred_seq is not None:
+            # on training:  use ground truth previous frames 
+            static_pred_shape = pred_seq.get_shape().as_list()
+            pred_seq = tf.transpose(pred_seq, [1, 0, 2, 3, 4])
+            pred_seq = tf.split(0, static_pred_shape[1], pred_seq)
+            pred_seq_list = [input_seq[-1]]
+            for i in xrange(static_pred_shape[1] - 1):
+                pred_seq_list.append(tf.squeeze(pred_seq[i], (0,)))
 
-def inference(input_seq, pred_seq, FRAME_CHANNELS, OUTPUT_SEQ_LENGTH, LAMBDA): # TODO: INPUT => OUTPUT SEQ LENGTH
-    # input_seq: [batch_size, n_steps, h, w, c]
-    batch_size = tf.shape(input_seq)[0]
-    static_input_shape = input_seq.get_shape().as_list()
-    input_seq = tf.transpose(input_seq, [1, 0, 2, 3, 4])
-    input_seq = tf.split(0, static_input_shape[1], input_seq)
-    input_seq = [tf.squeeze(i, (0,)) for i in input_seq]
-    
-    with tf.variable_scope("encoder-lstm"):
-        enc_outputs, enc_state = _conv2d_lstm(input_seq, None)
-    
-    if pred_seq is not None:
-        # on training:  use ground truth previous frames 
-        static_pred_shape = pred_seq.get_shape().as_list()
-        pred_seq = tf.transpose(pred_seq, [1, 0, 2, 3, 4])
-        pred_seq = tf.split(0, static_pred_shape[1], pred_seq)
-        pred_seq_list = [input_seq[-1]]
-        for i in xrange(static_pred_shape[1] - 1):
-            pred_seq_list.append(tf.squeeze(pred_seq[i], (0,)))
+            with tf.variable_scope('decoder-lstm'):
+                lstm_cell = _create_lstm_cell(self.input_shape[2], self.input_shape[3],
+                                              self._lstm_layers, self._lstm_filters, 
+                                              self._lstm_ksize_input, self._lstm_ksize_hidden)
+                dec_outputs, _ = tt.recurrent.rnn_conv2d(lstm_cell, pred_seq_list, initial_state=enc_state)
 
-        with tf.variable_scope('decoder-lstm'):
-            dec_outputs, _ = _conv2d_lstm(pred_seq_list, enc_state)
+                for i in xrange(len(dec_outputs)):
+                    dec_outputs[i] = tt.network.conv2d("Conv-Reduce", dec_outputs[i], 1,
+                                                       (1, 1), (1, 1),
+                                                       weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
+                                                       bias_init=0.1,
+                                                       regularizer=tf.contrib.layers.l2_regularizer(self._reg_lambda))
+                    tf.get_variable_scope().reuse_variables()
 
-            for i in xrange(len(dec_outputs)):
-                dec_outputs[i] = tt.network.conv2d("Conv-Reduce", dec_outputs[i], 1,
-                                                   (1, 1), (1, 1),
-                                                   weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
-                                                   bias_init=0.1,
-                                                   regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
-                tf.get_variable_scope().reuse_variables()
+                return tf.pack(dec_outputs, axis=1)
 
-            return tf.pack(dec_outputs, axis=1)
-        
-    else:
+        else:'''
         # on test/eval: use previously generated frame
+        # TODO: output-post/pre-processor hook for tt.recurrent.rnn_conv2d
+        # TODO: use train-code (above) using a longer input-seq (plus a constr-param, that tells the input_length)?
         with tf.variable_scope('decoder-lstm') as varscope:
-            lstm_cell = _create_lstm_cell()
+            lstm_cell = _create_lstm_cell(self.input_shape[2], self.input_shape[3],
+                                          self._lstm_layers, self._lstm_filters, 
+                                          self._lstm_ksize_input, self._lstm_ksize_hidden)
             input_ = input_seq[-1]
             state = enc_state
             dec_outputs = []
-            
-            for time in xrange(OUTPUT_SEQ_LENGTH):
-                if time > 0:
+
+            for t in xrange(self._targets.get_shape()[1]):
+                if t > 0:
                         varscope.reuse_variables()
-                        
+
                 with tf.variable_scope("RNNConv2D"): 
                     (output, state) = lstm_cell(input_, state)
 
-                dec_output = tt.network.conv2d("Conv-Reduce", output, 1,
+                dec_output = tt.network.conv2d("Conv-Reduce", output, self.input_shape[4],
                                                (1, 1), (1, 1),
                                                weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                                bias_init=0.1,
-                                               regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
+                                               regularizer=tf.contrib.layers.l2_regularizer(self.reg_lambda))
                 _input = dec_output
                 dec_outputs.append(dec_output)
 
             return tf.pack(dec_outputs, axis=1)
 
-    
-def loss(model_outputs, next_frames):
-    """Add L2Loss to all the trainable variables.
-    Add summary for "Loss" and "Loss/avg".
-    Args:
-        model_output: Output from inference() function.
-        next_frames: Labels from distorted_inputs or inputs(). 1-D tensor
-            of shape [batch_size]
-    Returns:
-        Loss tensor of type float.
-    """
-    # Calculate the average squared loss per image across the batch
-    loss = tf.reduce_mean(
-        tf.reduce_sum(tf.pow(tf.sub(model_outputs, next_frames), 2), reduction_indices=[2,3,4]),
-        name="squared_loss")
-    
-    reg_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES), name="reg_loss")
-    
-    total_loss = tf.add(loss, reg_loss, name="total_loss")
-    return total_loss, loss
+    @tt.utils.attr.lazy_property
+    def loss(self):
+        predictions = self.predictions
+        # Calculate the average squared loss per image across the batch
+        loss = tf.reduce_mean(
+            tf.reduce_sum(tf.pow(tf.sub(predictions, self._targets), 2), reduction_indices=[2,3,4]),
+            name="squared_loss")
+        return loss

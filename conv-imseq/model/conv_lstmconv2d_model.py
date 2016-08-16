@@ -7,13 +7,13 @@ import tensortools as tt
 import tensorflow as tf
 
 
-def encoder(frame_input, LAMBDA):  
+def _encoder(frame_input, reg_lambda):  
     # conv1  
     conv1 = tt.network.conv2d("conv1", frame_input,
                               128, (9, 9), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
-                              regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
+                              regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                               activation=tf.nn.relu)
     tt.board.activation_summary(conv1)
     
@@ -22,7 +22,7 @@ def encoder(frame_input, LAMBDA):
                               128, (5, 5), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
-                              regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
+                              regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                               activation=tf.nn.relu)
     tt.board.activation_summary(conv2)
     
@@ -31,19 +31,19 @@ def encoder(frame_input, LAMBDA):
                               128, (5, 5), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
-                              regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
+                              regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                               activation=tf.nn.tanh) # a paper proposes to use TANH here
     tt.board.activation_summary(conv3)
         
     return conv3
 
 
-def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
+def _decoder(rep_input, reg_lambda, channels):
     conv1t = tt.network.conv2d_transpose("deconv1", rep_input,
                                          128, (5, 5), (2, 2),
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias_init=0.1,
-                                         regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
+                                         regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                                          activation=tf.nn.relu)
     tt.board.activation_summary(conv1t)
     
@@ -51,78 +51,82 @@ def decoder(rep_input, FRAME_CHANNELS, LAMBDA):
                                          128, (5, 5), (2, 2),
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias_init=0.1,
-                                         regularizer=tf.contrib.layers.l2_regularizer(LAMBDA),
+                                         regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                                          activation=tf.nn.relu)
     tt.board.activation_summary(conv2t)
     
     conv3t = tt.network.conv2d_transpose("deconv3", conv2t,
-                                         FRAME_CHANNELS, (9, 9), (2, 2),
+                                         channels, (9, 9), (2, 2),
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias_init=0.1,
-                                         regularizer=tf.contrib.layers.l2_regularizer(LAMBDA))
+                                         regularizer=tf.contrib.layers.l2_regularizer(reg_lambda))
     tt.board.activation_summary(conv3t)
         
     return conv3t
 
 
-def conv2d_lstm(conv_image_sequence):
-    LSTM_LAYERS = 1
-    LSTM_I_KSIZE = 5
-    LSTM_H_KSIZE = 7
-    LSTM_FILTERS = 128
-    LSTM_HEIGHT = 30
-    LSTM_WIDTH = 40
-    
-    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(LSTM_HEIGHT, LSTM_WIDTH, LSTM_FILTERS,
-                                                 ksize_input=(LSTM_I_KSIZE, LSTM_I_KSIZE),
-                                                 ksize_hidden=(LSTM_H_KSIZE, LSTM_H_KSIZE))
-    if LSTM_LAYERS > 1:
-        lstm_cell = tt.recurrent.MultiRNNConv2DCell([lstm_cell] * LSTM_LAYERS)
+def _conv2d_lstm(conv_image_sequence,
+                 layers, filters, height, width, ksize_input, ksize_hidden):   
+    lstm_cell = tt.recurrent.BasicLSTMConv2DCell(height, width, filters,
+                                                 ksize_input=ksize_input,
+                                                 ksize_hidden=ksize_hidden,
+                                                 device='/cpu:0')
+    if layers > 1:
+        lstm_cell = tt.recurrent.MultiRNNConv2DCell([lstm_cell] * layers)
 
     # Get lstm cell output
     outputs, states = tt.recurrent.rnn_conv2d(lstm_cell, conv_image_sequence)
     return outputs[-1]    
-    
 
-def inference(stacked_input, FRAME_CHANNELS, INPUT_SEQ_LENGTH, LAMBDA):
-    batch_size = tf.shape(stacked_input)[0]
-    static_input_shape = stacked_input.get_shape().as_list()
-    input_seq_length = static_input_shape[3] / FRAME_CHANNELS
-    input_splitted = tf.split(3, input_seq_length, stacked_input)
-    
-    # encoder
-    with tf.variable_scope("encoder"):
-        convolved_inputs = []
-        for i, input_part in enumerate(input_splitted):
-            if i > 0:
-                tf.get_variable_scope().reuse_variables()
-            convolved_input = encoder(input_part, LAMBDA)
-            convolved_inputs.append(convolved_input)
-    
-    # lstm
-    with tf.variable_scope('lstm'):
-        lstm_output = conv2d_lstm(convolved_inputs)
-    
-    # decoder
-    with tf.variable_scope('decoder'):
-        prediction = decoder(lstm_output, FRAME_CHANNELS, LAMBDA)
-    return prediction
 
-    
-def loss(model_output, next_frame):
-    """Add L2Loss to all the trainable variables.
-    Add summary for "Loss" and "Loss/avg".
-    Args:
-        model_output: Output from inference() function.
-        next_frame: Labels from distorted_inputs or inputs(). 1-D tensor
-            of shape [batch_size]
-    Returns:
-        Loss tensor of type float.
+class ConvLSTMConv2DModel(tt.model.AbstractModel):
+    """Simple model that uses a convolutional autoencoder architecture.
+       It has to learn the temporal dependencies by its own.
+       This model only predicts a single frame.
+       
+       References: N. Srivastava et al.
+                   http://arxiv.org/abs/1502.04681
     """
-    # Calculate the average euc-loss across the batch
-    loss = tf.sqrt(tf.reduce_sum(tf.pow(tf.sub(model_output, next_frame), 2)), name="euc_loss")
-    #loss = tf.contrib.losses.sum_of_pairwise_squares(model_output, next_frame)
-    reg_loss = tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES), name="reg_loss")
+    def __init__(self, inputs, targets, reg_lambda=5e-4,
+                 lstm_layers=1, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(7,7)):
+        self._lstm_layers = lstm_layers
+        self._lstm_ksize_input = lstm_ksize_input
+        self._lstm_ksize_hidden = lstm_ksize_hidden
+        super(ConvLSTMConv2DModel, self).__init__(inputs, targets, reg_lambda)
     
-    total_loss = tf.add(loss, reg_loss, name="total_loss")
-    return total_loss, loss
+    @tt.utils.attr.lazy_property
+    def predictions(self):
+        input_seq = tf.transpose(self._inputs, [1, 0, 2, 3, 4])
+        input_seq = tf.split(0, self.input_shape[1], input_seq)
+        input_seq = [tf.squeeze(i, (0,)) for i in input_seq]
+
+        # encoder
+        with tf.variable_scope("encoder"):
+            convolved_inputs = []
+            for i, input_part in enumerate(input_seq):
+                if i > 0:
+                    tf.get_variable_scope().reuse_variables()
+                convolved_input = _encoder(input_part, self.reg_lambda)
+                convolved_inputs.append(convolved_input)
+
+        # lstm
+        with tf.variable_scope('lstm'):
+            lstm_input_shape = convolved_inputs[0].get_shape().as_list()
+            lstm_output = _conv2d_lstm(convolved_inputs,
+                                       self._lstm_layers, lstm_input_shape[3],
+                                       lstm_input_shape[1], lstm_input_shape[2],
+                                       self._lstm_ksize_input, self._lstm_ksize_hidden)
+
+        # decoder
+        with tf.variable_scope('decoder'):
+            prediction = _decoder(lstm_output, self.reg_lambda, self.input_shape[4])
+        return prediction
+
+    @tt.utils.attr.lazy_property
+    def loss(self):
+        predictions = self.predictions
+        # Calculate the average squared loss per image across the batch
+        loss = tf.reduce_mean(
+            tf.reduce_sum(tf.pow(tf.sub(predictions, self._targets), 2), reduction_indices=[2,3,4]),
+            name="squared_loss")
+        return loss
