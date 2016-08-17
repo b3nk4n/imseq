@@ -70,7 +70,6 @@ class LSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
 
         else:'''
         # on test/eval: use previously generated frame
-        # TODO: output-post/pre-processor hook for tt.recurrent.rnn_conv2d
         # TODO: use train-code (above) using a longer input-seq (plus a constr-param, that tells the input_length)?
         with tf.variable_scope('decoder-lstm') as varscope:
             lstm_cell = _create_lstm_cell(self.input_shape[2], self.input_shape[3],
