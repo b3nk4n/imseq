@@ -82,6 +82,7 @@ class LSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
                                          weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                          bias_init=0.1,
                                          regularizer=tf.contrib.layers.l2_regularizer(self.reg_lambda),
+                                         activation=tf.nn.tanh,
                                          device='/cpu:0')
             
             dec_outputs, _ = tt.recurrent.rnn_conv2d_roundabout(lstm_cell, input_seq[-1],
@@ -95,7 +96,21 @@ class LSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
     def loss(self):
         predictions = self.predictions
         # Calculate the average squared loss per image across the batch
-        loss = tf.reduce_mean(
-            tf.reduce_sum(tf.pow(tf.sub(predictions, self._targets), 2), reduction_indices=[2,3,4]),
-            name="squared_loss")
+        #loss = tf.reduce_mean(
+        #    tf.reduce_sum(tf.pow(tf.sub(predictions, self._targets), 2), reduction_indices=[2,3,4]),
+        #    name="squared_loss")
+        
+        with tf.name_scope('loss_calc'):
+            predictions_ssim = tf.reshape(predictions, [-1, 64, 64, 1]) * 127.5 + 127.5
+            targets_ssim = tf.reshape(self._targets, [-1, 64, 64, 1]) * 127.5 + 127.5
+
+            alpha = 0.84
+            mse_loss = tf.mul((1 - alpha), tt.loss.mse(predictions, self._targets), name="mse")
+            tf.add_to_collection('intermediate_losses', mse_loss)
+            mssim_loss = tf.mul(alpha, tt.loss.ssim(predictions_ssim, targets_ssim, # FIXME: why is MS-SSIM not working?
+                                                    patch_size=11), name='ssim')#, level_weights=[0.334, 0.334, 0.334])
+            tf.add_to_collection('intermediate_losses', mssim_loss)
+            
+        loss = (mse_loss + mssim_loss) / self.input_shape[1]
+            
         return loss
