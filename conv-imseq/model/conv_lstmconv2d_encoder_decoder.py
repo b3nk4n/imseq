@@ -15,7 +15,7 @@ def _create_lstm_cell(height, width, layers, filters, ksize_input, ksize_hidden)
     return lstm_cell
 
 
-def _conv_stack(x, reg_lambda):
+def _conv_stack(x, reg_lambda, is_training):
     conv1 = tt.network.conv2d("Conv1", x, 32,
                               (3, 3), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
@@ -23,6 +23,8 @@ def _conv_stack(x, reg_lambda):
                               regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                               activation=tf.nn.relu,
                               device='/cpu:0')
+    with tf.device('/cpu:0'):
+        conv1 = tf.contrib.layers.batch_norm(conv1, is_training=is_training, scope="conv1_bn")
     conv2 = tt.network.conv2d("Conv2", conv1, 64,
                               (3, 3), (1, 1),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
@@ -30,6 +32,8 @@ def _conv_stack(x, reg_lambda):
                               regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                               activation=tf.nn.relu,
                               device='/cpu:0')
+    with tf.device('/cpu:0'):
+        conv2 = tf.contrib.layers.batch_norm(conv2, is_training=is_training, scope="conv2_bn")
     conv3 = tt.network.conv2d("Conv3", conv2, 64,
                               (3, 3), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
@@ -37,10 +41,12 @@ def _conv_stack(x, reg_lambda):
                               regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                               activation=tf.nn.relu,
                               device='/cpu:0')
+    with tf.device('/cpu:0'):
+        conv3 = tf.contrib.layers.batch_norm(conv3, is_training=is_training, scope="conv3_bn")
     return conv1, conv2, conv3
 
 
-def _deconv_stack(representation, conv1, conv2, reg_lambda, channels):
+def _deconv_stack(representation, conv1, conv2, reg_lambda, channels, is_training):
     deconv1 = tt.network.conv2d_transpose("Deconv1", representation, 64,
                                           (3, 3), (2, 2),
                                           weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
@@ -48,6 +54,8 @@ def _deconv_stack(representation, conv1, conv2, reg_lambda, channels):
                                           regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                                           activation=tf.nn.relu,
                                           device='/cpu:0')
+    #with tf.device('/cpu:0'):
+        #deconv1 = tf.contrib.layers.batch_norm(deconv1, is_training=is_training, scope="deconv1_bn")
     x = tf.concat(3, [deconv1, conv2])
     deconv2 = tt.network.conv2d_transpose("Deconv2", x, 32,
                                           (3, 3), (1, 1),
@@ -56,6 +64,8 @@ def _deconv_stack(representation, conv1, conv2, reg_lambda, channels):
                                           regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
                                           activation=tf.nn.relu,
                                           device='/cpu:0')
+    #with tf.device('/cpu:0'):
+        #deconv2 = tf.contrib.layers.batch_norm(deconv2, is_training=is_training, scope="deconv2_bn")
     x = tf.concat(3, [deconv2, conv1])
     deconv3 = tt.network.conv2d_transpose("Deconv3", x, channels,
                                           (3, 3), (2, 2),
@@ -69,16 +79,20 @@ def _deconv_stack(representation, conv1, conv2, reg_lambda, channels):
 class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
     """Model that uses the LSTM decoder/encoder architecture
        with LSTMConv2D instead of normal LSTM cells that processes
-       the convoluted representation. 
+       the convoluted representations. 
        
        References: N. Srivastava et al.
                    http://arxiv.org/abs/1502.04681
     """
     def __init__(self, inputs, targets, reg_lambda=5e-4,
-                 lstm_layers=1, lstm_ksize_input=(7, 7), lstm_ksize_hidden=(7,7)):
+                 lstm_layers=1, lstm_ksize_input=(7, 7), lstm_ksize_hidden=(7,7),
+                 scope=None,
+                 is_training=False):
         self._lstm_layers = lstm_layers
         self._lstm_ksize_input = lstm_ksize_input
         self._lstm_ksize_hidden = lstm_ksize_hidden
+        self._scope = scope  # TODO: move to base class (call is device scope?)
+        self._is_training = is_training  # TODO: move to base class
         super(ConvLSTMConv2DDecoderEncoderModel, self).__init__(inputs, targets, reg_lambda)
     
     @tt.utils.attr.lazy_property
@@ -94,7 +108,7 @@ class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
                     varscope.reuse_variables()
 
                 # we only need the very last c1,c2. Override the previous
-                (c1, c2, c3) = _conv_stack(input_seq[i], self.reg_lambda)
+                (c1, c2, c3) = _conv_stack(input_seq[i], self.reg_lambda, self._is_training)
                 conv_input_seq.append(c3)
             
         representation_shape = c3.get_shape().as_list()
@@ -125,7 +139,8 @@ class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
                     
                 # we only need the very last c1,c2. Override the previous
                 (dc1, dc2, dc3) = _deconv_stack(rep_outputs[i], inputs[0], inputs[1],
-                                                self.reg_lambda, self.input_shape[4])
+                                                self.reg_lambda, self.input_shape[4],
+                                                self._is_training)
                 deconv_output_seq.append(dc3)
                 inputs = (dc2, dc1)
 
