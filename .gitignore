@@ -1,6 +1,6 @@
 tmp/
 out/
-train/
+train*/
 .ipynb_checkpoints/
 *py[cod]
 *$py.class
