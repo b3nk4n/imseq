@@ -87,8 +87,8 @@ class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
         super(ConvLSTMConv2DDecoderEncoderModel, self).__init__(reg_lambda)
         
     @tt.utils.attr.override
-    def inference(self, inputs, targets, is_training=True,
-                  device_scope=None, memory_device=None):
+    def inference(self, inputs, targets, feeds,
+                  is_training, device_scope, memory_device):
         input_shape = inputs.get_shape().as_list()
         target_shape = targets.get_shape().as_list()
         
@@ -147,5 +147,5 @@ class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
         return packed_result
     
     @tt.utils.attr.override
-    def loss(self, predictions, targets):
+    def loss(self, predictions, targets, device_scope):
         return tt.loss.bce(predictions, targets)
