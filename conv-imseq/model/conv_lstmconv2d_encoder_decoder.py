@@ -17,7 +17,7 @@ def _create_lstm_cell(height, width, layers, filters, ksize_input, ksize_hidden,
 
 def _conv_stack(x, reg_lambda, is_training, memory_device):
     conv1 = tt.network.conv2d("Conv1", x, 32,
-                              (3, 3), (2, 2),
+                              (5, 5), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
                               regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
@@ -68,19 +68,19 @@ def _deconv_stack(representation, conv1, conv2, reg_lambda, channels, is_trainin
         #deconv2 = tf.contrib.layers.batch_norm(deconv2, is_training=is_training, scope="deconv2_bn")
     x = tf.concat(3, [deconv2, conv1])
     deconv3 = tt.network.conv2d_transpose("Deconv3", x, channels,
-                                          (3, 3), (2, 2),
+                                          (5, 5), (2, 2),
                                           weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                           bias_init=0.1,
                                           regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
-                                          activation=tf.nn.sigmoid,
+                                          #activation=tf.nn.sigmoid, # No-Nonlin. give best results for MovingMNIST
                                           device=memory_device)
     return deconv1, deconv2, deconv3
 
 
     
 class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):    
-    def __init__(self, reg_lambda=0.0,
-                 lstm_layers=1, lstm_ksize_input=(7, 7), lstm_ksize_hidden=(7,7)):
+    def __init__(self, reg_lambda,
+                 lstm_layers=1, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(5,5)):
         self._lstm_layers = lstm_layers
         self._lstm_ksize_input = lstm_ksize_input
         self._lstm_ksize_hidden = lstm_ksize_hidden
@@ -91,6 +91,9 @@ class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
                   is_training, device_scope, memory_device):
         input_shape = inputs.get_shape().as_list()
         target_shape = targets.get_shape().as_list()
+        
+        # rescale values from [0, 1] to [-1, 1]
+        #inputs = inputs * 2.0 - 1.0
         
         input_seq = tf.transpose(inputs, [1, 0, 2, 3, 4])
         input_seq = tf.split(0, input_shape[1], input_seq)
@@ -143,9 +146,37 @@ class ConvLSTMConv2DDecoderEncoderModel(tt.model.AbstractModel):
                 inputs = (dc2, dc1)
 
         packed_result = tf.pack(deconv_output_seq, axis=1)
-        packed_result.set_shape(target_shape)
+        
+        # rescale values from [-1, 1] to [0, 1]
+        #packed_result = (packed_result + 1.0) / 2.0
+        
         return packed_result
     
     @tt.utils.attr.override
     def loss(self, predictions, targets, device_scope):
+        #bce_loss = tf.mul(10.0, tt.loss.bce(predictions, targets), name="BCE_loss")
+        # mul10 to have a sum over all frames as well as in mGDL
+        #tf.add_to_collection(tt.core.INTERMEDIATE_LOSSES, bce_loss)
+        
+        # swap batch_size and t-dim
+        #swapped_predictions = tf.transpose(predictions, [1,0,2,3,4])
+        #swapped_targets = tf.transpose(targets, [1,0,2,3,4])
+        
+        #predictions_list = tf.unpack(swapped_predictions)
+        #targets_list = tf.unpack(swapped_targets)
+        
+        #total_mgdl = 0
+        #for pred, tgt in zip(predictions_list, targets_list):
+        #    total_mgdl += tt.loss.mgdl(pred, tgt)
+        
+        #mgdl_loss = tf.identity(total_mgdl, name="mGDL_loss")
+        #tf.add_to_collection(tt.core.INTERMEDIATE_LOSSES, mgdl_loss)
+        
+        #return tf.add(bce_loss, mgdl_loss, name="combined_bce_mgdl")
+        
+        #return tf.mul(4096.0, tt.loss.mse(predictions, targets), name="4096_mul_mse")
+        #loss = tf.reduce_mean(
+        #    tf.reduce_sum(tf.pow(tf.sub(predictions, targets), 2), reduction_indices=[2,3,4]),
+        #    name="custom_squared_loss")
+        #return loss
         return tt.loss.bce(predictions, targets)
