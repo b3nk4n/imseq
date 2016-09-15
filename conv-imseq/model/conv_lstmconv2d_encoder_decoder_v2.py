@@ -78,9 +78,9 @@ class ConvLSTMConv2DDecoderEncoderModelV2(tt.model.AbstractModel):
        References: N. Srivastava et al.
                    http://arxiv.org/abs/1502.04681
     """
-    def __init__(self, inputs, targets, reg_lambda=5e-4,
-                 lstm_layers=1, lstm_ksize_input=(7, 7), lstm_ksize_hidden=(7,7),
-                 scope=None):
+    def __init__(self, inputs, targets, reg_lambda=0.0, is_training=True,
+                 device_scope=None, memory_device=None,
+                 lstm_layers=1, lstm_ksize_input=(7, 7), lstm_ksize_hidden=(7,7)):
         self._lstm_layers = lstm_layers
         self._lstm_ksize_input = lstm_ksize_input
         self._lstm_ksize_hidden = lstm_ksize_hidden
@@ -90,9 +90,8 @@ class ConvLSTMConv2DDecoderEncoderModelV2(tt.model.AbstractModel):
         self._inputs_recon_frames = None  # [batch, t, 64, 64, 1]
         self._targets_recon_frames = None  # [batch, t, 64, 64, 1]
         
-        self._scope = scope
-        
-        super(ConvLSTMConv2DDecoderEncoderModelV2, self).__init__(inputs, targets, reg_lambda)
+        super(ConvLSTMConv2DDecoderEncoderModelV2, self).__init__(inputs, targets, reg_lambda,
+                                                                  is_training, device_scope, memory_device)
     
     @tt.utils.attr.lazy_property
     def predictions(self):
