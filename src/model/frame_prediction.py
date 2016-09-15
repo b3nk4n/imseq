@@ -21,13 +21,13 @@ def _create_lstm_cell(height, width, layers, filters, ksize_input, ksize_hidden,
     return lstm_cell
 
 
-def _conv_stack(x, reg_lambda, is_training, memory_device):
+def _conv_stack(x, weight_decay, is_training, memory_device):
     x = tf.contrib.layers.batch_norm(x, is_training=is_training, scope="x_bn")
     conv1 = tt.network.conv2d("Conv1", x, 32,
                               (5, 5), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
-                              regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
+                              regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                               activation=tf.nn.relu,
                               device=memory_device)
 
@@ -36,7 +36,7 @@ def _conv_stack(x, reg_lambda, is_training, memory_device):
                               (3, 3), (1, 1),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
-                              regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
+                              regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                               activation=tf.nn.relu,
                               device=memory_device)
 
@@ -45,7 +45,7 @@ def _conv_stack(x, reg_lambda, is_training, memory_device):
                               (3, 3), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                               bias_init=0.1,
-                              regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
+                              regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                               activation=tf.nn.relu,
                               device=memory_device)
 
@@ -53,7 +53,7 @@ def _conv_stack(x, reg_lambda, is_training, memory_device):
     return conv3
 
 
-def _deconv_stack(representation, reg_lambda, channels, is_training, memory_device):
+def _deconv_stack(representation, weight_decay, channels, is_training, memory_device):
     representation = tf.contrib.layers.batch_norm(representation,
                                                   is_training=is_training,
                                                   scope="rep_bn")
@@ -61,7 +61,7 @@ def _deconv_stack(representation, reg_lambda, channels, is_training, memory_devi
                                           (3, 3), (2, 2),
                                           weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                           bias_init=0.1,
-                                          regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
+                                          regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                                           activation=tf.nn.relu,
                                           device=memory_device)
 
@@ -70,7 +70,7 @@ def _deconv_stack(representation, reg_lambda, channels, is_training, memory_devi
                                           (3, 3), (1, 1),
                                           weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                           bias_init=0.1,
-                                          regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
+                                          regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                                           activation=tf.nn.relu,
                                           device=memory_device)
 
@@ -79,7 +79,7 @@ def _deconv_stack(representation, reg_lambda, channels, is_training, memory_devi
                                           (5, 5), (2, 2),
                                           weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
                                           bias_init=0.1,
-                                          regularizer=tf.contrib.layers.l2_regularizer(reg_lambda),
+                                          regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
                                           activation=tf.nn.sigmoid,
                                           device=memory_device)
                                           # Note: No-Non-lin. give best results for MovingMNIST
@@ -88,12 +88,12 @@ def _deconv_stack(representation, reg_lambda, channels, is_training, memory_devi
 
 
 class LSTMConv2DPredictionModel(tt.model.AbstractModel):    
-    def __init__(self, reg_lambda=0.0,
+    def __init__(self, weight_decay,
                  lstm_layers=1, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(5,5)):
         self._lstm_layers = lstm_layers
         self._lstm_ksize_input = lstm_ksize_input
         self._lstm_ksize_hidden = lstm_ksize_hidden
-        super(LSTMConv2DPredictionModel, self).__init__(reg_lambda)
+        super(LSTMConv2DPredictionModel, self).__init__(weight_decay)
         
     @tt.utils.attr.override
     def inference(self, inputs, targets, feeds,
@@ -111,7 +111,7 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
                 if i > 0:
                     varscope.reuse_variables()
                 
-                c3 = _conv_stack(input_seq[i], self.reg_lambda,
+                c3 = _conv_stack(input_seq[i], self.weight_decay,
                                  is_training, memory_device)
                 conv_input_seq.append(c3)
             
@@ -140,7 +140,7 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
                 if i > 0:
                     varscope.reuse_variables()
 
-                dc3 = _deconv_stack(rep_outputs[i], self.reg_lambda, input_shape[4],
+                dc3 = _deconv_stack(rep_outputs[i], self.weight_decay, input_shape[4],
                                     is_training, memory_device)
                 deconv_output_seq.append(dc3)
 
