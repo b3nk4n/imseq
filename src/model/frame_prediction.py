@@ -87,14 +87,13 @@ def _deconv_stack(representation, reg_lambda, channels, is_training, memory_devi
     return deconv3
 
 
-    
-class ConvLSTMConv2DDecoderEncoderModelND(tt.model.AbstractModel):    
+class LSTMConv2DPredictionModel(tt.model.AbstractModel):    
     def __init__(self, reg_lambda=0.0,
                  lstm_layers=1, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(5,5)):
         self._lstm_layers = lstm_layers
         self._lstm_ksize_input = lstm_ksize_input
         self._lstm_ksize_hidden = lstm_ksize_hidden
-        super(ConvLSTMConv2DDecoderEncoderModelND, self).__init__(reg_lambda)
+        super(LSTMConv2DPredictionModel, self).__init__(reg_lambda)
         
     @tt.utils.attr.override
     def inference(self, inputs, targets, feeds,
