@@ -22,7 +22,7 @@ def _create_lstm_cell(height, width, layers, filters, ksize_input, ksize_hidden,
 
 
 def _conv_stack(x, weight_decay, is_training, memory_device):
-    x = tf.contrib.layers.batch_norm(x, is_training=is_training, scope="x_bn")
+    #x = tf.contrib.layers.batch_norm(x, is_training=is_training, scope="x_bn")
     conv1 = tt.network.conv2d("Conv1", x, 32,
                               (5, 5), (2, 2),
                               weight_init=tf.contrib.layers.xavier_initializer_conv2d(),
@@ -89,7 +89,7 @@ def _deconv_stack(representation, weight_decay, channels, is_training, memory_de
 
 class LSTMConv2DPredictionModel(tt.model.AbstractModel):    
     def __init__(self, weight_decay,
-                 lstm_layers=1, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(5,5)):
+                 lstm_layers=2, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(5,5)):
         self._lstm_layers = lstm_layers
         self._lstm_ksize_input = lstm_ksize_input
         self._lstm_ksize_hidden = lstm_ksize_hidden
@@ -150,4 +150,55 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
     
     @tt.utils.attr.override
     def loss(self, predictions, targets, device_scope):
-        return tt.loss.bce(predictions, targets)
+        # BCE loss
+        bce_loss = tt.loss.bce(predictions, targets)
+        tf.add_to_collection(tt.core.LOG_LOSSES, bce_loss)
+        
+        # mGDL loss
+        pshape = predictions.get_shape().as_list()
+        tshape = targets.get_shape().as_list()
+        pred_reshaped = tf.reshape(predictions, [-1] + pshape[2:])
+        tgt_reshaped = tf.reshape(targets, [-1] + tshape[2:])
+        gdl_loss = tt.loss.mgdl(pred_reshaped, tgt_reshaped)
+        tf.add_to_collection(tt.core.LOG_LOSSES, gdl_loss)
+        
+        # additional single-frame losses to eval training over time
+        bce_fr1 = tt.loss.bce(predictions[:,0,:,:,:], targets[:,0,:,:,:], name="1st_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, bce_fr1)
+        bce_fr2 = tt.loss.bce(predictions[:,1,:,:,:], targets[:,1,:,:,:], name="2nd_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, bce_fr2)
+        bce_fr3 = tt.loss.bce(predictions[:,2,:,:,:], targets[:,2,:,:,:], name="3rd_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, bce_fr3)
+        bce_last = tt.loss.bce(predictions[:,pshape[1],:,:,:], targets[:,tshape[1],:,:,:], name="last_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, bce_last)
+        
+        # combine both losses to optimize
+        return tf.add(bce_loss, gdl_loss, name="combined_loss")
+    
+    @tt.utils.attr.override
+    def evaluation(self, predictions, targets, device_scope):
+        # swap batch_size and time-dim
+        swapped_predictions = tf.transpose(predictions, [1,0,2,3,4])
+        swapped_targets = tf.transpose(targets, [1,0,2,3,4])
+
+        # split as list of element-shape [bs, h, w, c]
+        predictions_list = tf.unpack(swapped_predictions)
+        targets_list = tf.unpack(swapped_targets)
+        
+        psnr = sharpdiff = ssim = 0.0
+        for pred, tgt in zip(predictions_list, targets_list):
+            psnr += tt.image.psnr(pred, tgt)
+            sharpdiff += tt.image.sharp_diff(pred, tgt)
+            ssim += tt.image.ssim(pred, tgt)
+            
+        # average values
+        denom = len(targets_list)
+        psnr /= denom
+        sharpdiff /= denom
+        ssim /= denom
+            
+        # add bce/mse losses here as well to see them in the evaluation
+        bce = tt.loss.bce(predictions, targets)
+        mse = tt.loss.mse(predictions, targets)
+
+        return {"bce": bce, "mse": mse, "psnr": psnr, "sharpdiff": sharpdiff, "ssim": ssim}
