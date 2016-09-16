@@ -8,7 +8,8 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
                  bn_feature_enc=True, bn_feature_dec=True, 
                  lstm_layers=1, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(5,5),
                  lstm_use_peepholes=True, lstm_cell_clip=None, lstm_bn_input_hidden=False, 
-                 lstm_bn_hidden_hidden=False, lstm_bn_peepholes=False):
+                 lstm_bn_hidden_hidden=False, lstm_bn_peepholes=False,
+                 scheduled_sampling_decay_rate=None):
         assert len(filters) == len(ksizes) and len(filters) == len(strides), "Encoder/Decoder configuration mismatch."
         
         # feature encoder/decoder
@@ -29,6 +30,9 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         self._lstm_bn_input_hidden = lstm_bn_input_hidden
         self._lstm_bn_hidden_hidden = lstm_bn_hidden_hidden
         self._lstm_bn_peepholes = lstm_bn_peepholes
+        
+        # scheduled sampling
+        self._scheduled_sampling_decay_rate = scheduled_sampling_decay_rate
 
         super(LSTMConv2DPredictionModel, self).__init__(weight_decay)
         
@@ -39,14 +43,14 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         target_shape = targets.get_shape().as_list()
         
         # Conv-Encoder
-        with tf.variable_scope("conv-encoder") as varscope:
+        conv_input_seq = []
+        with tf.variable_scope("conv-encoder") as conv_enc_scope:
             # convert from shape [bs, t, h, w, c] to list([bs, h, w, c])
             input_seq = tf.unpack(inputs, axis=1)
             
-            conv_input_seq = []
             for i in xrange(len(input_seq)):
                 if i > 0:
-                    varscope.reuse_variables()
+                    conv_enc_scope.reuse_variables()
                 
                 conv = self._conv_stack(input_seq[i], is_training, memory_device)
                 conv_input_seq.append(conv)
@@ -66,9 +70,32 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         # LSTM-Decoder
         with tf.variable_scope('lstm-decoder') as varscope:
             lstm_cell = self._create_lstm_cell(feat_repr_shape, is_training, memory_device)
-            rep_outputs, _ = tt.recurrent.rnn_conv2d_roundabout(lstm_cell, conv_input_seq[-1],
-                                                                sequence_length=target_shape[1],
-                                                                initial_state=learned_motion)
+            
+            if self._scheduled_sampling_decay_rate is None:
+                # Always sampling
+                rep_outputs, _ = tt.recurrent.rnn_conv2d_roundabout(lstm_cell, conv_input_seq[-1],
+                                                                    sequence_length=target_shape[1],
+                                                                    initial_state=learned_motion)
+            else:
+                # Scheduled sampling
+                target_seq = tf.unpack(targets, axis=1)
+                
+                target_gt_repr_list = []
+                with tf.variable_scope(conv_enc_scope, reuse=True):
+                    for full_input in input_seq[-1:] + target_seq[:-1]:
+                        conv = self._conv_stack(full_input, is_training, memory_device)
+                        target_gt_repr_list.append(conv)
+                
+                inv_sigmoid_decay = tt.training.inverse_sigmoid_decay(1.0, self.global_step,
+                                                                      decay_rate=self._scheduled_sampling_decay_rate)
+                tf.scalar_summary('scheduled_sampling', inv_sigmoid_decay)
+                
+                rep_outputs, _ = tt.recurrent.rnn_conv2d_scheduled_sampling(
+                    lstm_cell, conv_input_seq[-1],
+                    target_gt_repr_list,
+                    inv_sigmoid_decay, is_training,
+                    initial_state=learned_motion)
+                
         # Conv-Decoder   
         with tf.variable_scope("conv-decoder") as varscope:
             deconv_output_seq = []
