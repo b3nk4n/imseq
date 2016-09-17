@@ -6,10 +6,11 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
     def __init__(self, weight_decay, filters=[32, 64, 64], ksizes=[(5,5),(3,3),(3,3)],
                  strides=[(2,2),(1,1),(2,2)], bias_init=0.1, output_activation=tf.nn.sigmoid,
                  bn_feature_enc=True, bn_feature_dec=True, 
-                 lstm_layers=1, lstm_ksize_input=(5, 5), lstm_ksize_hidden=(5,5),
+                 lstm_layers=1, lstm_ksize_input=(3, 3), lstm_ksize_hidden=(5, 5),
                  lstm_use_peepholes=True, lstm_cell_clip=None, lstm_bn_input_hidden=False, 
                  lstm_bn_hidden_hidden=False, lstm_bn_peepholes=False,
-                 scheduled_sampling_decay_rate=None):
+                 scheduled_sampling_decay_rate=None,
+                 main_loss=tt.loss.mse, alpha_main_loss=1.0, alpha_gdl_loss=1.0):
         assert len(filters) == len(ksizes) and len(filters) == len(strides), "Encoder/Decoder configuration mismatch."
         
         # feature encoder/decoder
@@ -33,6 +34,11 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         
         # scheduled sampling
         self._scheduled_sampling_decay_rate = scheduled_sampling_decay_rate
+        
+        # main loss function, that will be combined with pisel-wise GDL
+        self._main_loss = main_loss
+        self._alpha_main_loss = alpha_main_loss
+        self._alpha_gdl_loss = alpha_gdl_loss
 
         super(LSTMConv2DPredictionModel, self).__init__(weight_decay)
         
@@ -176,9 +182,9 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
 
     @tt.utils.attr.override
     def loss(self, predictions, targets, device_scope):
-        # BCE loss
-        bce_loss = tt.loss.bce(predictions, targets)
-        tf.add_to_collection(tt.core.LOG_LOSSES, bce_loss)
+        # main loss
+        mloss = self._main_loss(predictions, targets)
+        tf.add_to_collection(tt.core.LOG_LOSSES, mloss)
         
         # mGDL loss
         pshape = predictions.get_shape().as_list()
@@ -189,18 +195,20 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         tf.add_to_collection(tt.core.LOG_LOSSES, gdl_loss)
         
         # additional single-frame losses to eval training over time
-        bce_fr1 = tt.loss.bce(predictions[:,0,:,:,:], targets[:,0,:,:,:], name="1st_frame")
-        tf.add_to_collection(tt.core.LOG_LOSSES, bce_fr1)
-        bce_fr2 = tt.loss.bce(predictions[:,1,:,:,:], targets[:,1,:,:,:], name="2nd_frame")
-        tf.add_to_collection(tt.core.LOG_LOSSES, bce_fr2)
-        bce_fr3 = tt.loss.bce(predictions[:,2,:,:,:], targets[:,2,:,:,:], name="3rd_frame")
-        tf.add_to_collection(tt.core.LOG_LOSSES, bce_fr3)
-        bce_last = tt.loss.bce(predictions[:,pshape[1] - 1,:,:,:],
-                               targets[:,tshape[1] - 1,:,:,:], name="last_frame")
-        tf.add_to_collection(tt.core.LOG_LOSSES, bce_last)
+        mloss_fr1 = self._main_loss(predictions[:,0,:,:,:], targets[:,0,:,:,:], name="1st_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, mloss_fr1)
+        mloss_fr2 = self._main_loss(predictions[:,1,:,:,:], targets[:,1,:,:,:], name="2nd_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, mloss_fr2)
+        mloss_fr3 = self._main_loss(predictions[:,2,:,:,:], targets[:,2,:,:,:], name="3rd_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, mloss_fr3)
+        mloss_last = self._main_loss(predictions[:,pshape[1] - 1,:,:,:],
+                                     targets[:,tshape[1] - 1,:,:,:], name="last_frame")
+        tf.add_to_collection(tt.core.LOG_LOSSES, mloss_last)
         
         # combine both losses to optimize
-        return tf.add(bce_loss, gdl_loss, name="combined_loss")
+        
+        return tf.add(self._alpha_main_loss * mloss, self._alpha_gdl_loss * gdl_loss,
+                      name="combined_loss")
     
     @tt.utils.attr.override
     def evaluation(self, predictions, targets, device_scope):
@@ -208,10 +216,14 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         predictions_list = tf.unpack(predictions, axis=1)
         targets_list = tf.unpack(targets, axis=1)
         
+        do_ssim_grayscale = True if predictions.get_shape().as_list()[-1] != 1 else False
         psnr = sharpdiff = ssim = 0.0
         for pred, tgt in zip(predictions_list, targets_list):
             psnr += tt.image.psnr(pred, tgt)
             sharpdiff += tt.image.sharp_diff(pred, tgt)
+            if do_ssim_grayscale:
+                pred = tf.image.rgb_to_grayscale(pred)
+                tgt = tf.image.rgb_to_grayscale(tgt)
             ssim += tt.image.ssim(pred, tgt)
             
         # average values
