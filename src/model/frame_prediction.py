@@ -3,7 +3,7 @@ import tensorflow as tf
 
 
 class LSTMConv2DPredictionModel(tt.model.AbstractModel):
-    def __init__(self, weight_decay, filters=[32, 64, 64], ksizes=[(5,5),(3,3),(3,3)],
+    def __init__(self, weight_decay=1e-5, filters=[32, 64, 64], ksizes=[(5,5),(3,3),(3,3)],
                  strides=[(2,2),(1,1),(2,2)], bias_init=0.1, output_activation=tf.nn.sigmoid,
                  bn_feature_enc=True, bn_feature_dec=True, 
                  lstm_layers=1, lstm_ksize_input=(3, 3), lstm_ksize_hidden=(5, 5),
