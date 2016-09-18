@@ -69,8 +69,11 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
             lstm_cell = self._create_lstm_cell(feat_repr_shape, is_training, memory_device)
             _, enc_state = tt.recurrent.rnn_conv2d(lstm_cell, conv_input_seq, initial_state=None)  
 
-        # visualilze learned motion pattern
+        
         learned_motion = enc_state
+        
+        # visualilze raw data and learned motion pattern of 1st image
+        tf.image_summary("input", inputs[0,:,:,:,:], max_images=len(input_seq))
         tt.board.lstm_state_image_summary("motion", learned_motion)
             
         # LSTM-Decoder
