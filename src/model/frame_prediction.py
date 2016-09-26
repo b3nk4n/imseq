@@ -48,6 +48,13 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         input_shape = inputs.get_shape().as_list()
         target_shape = targets.get_shape().as_list()
         
+        if self._output_activation == tf.nn.tanh:
+            # when we use tanh as output activation, we will use a data scale of [-1, 1]
+            # instead of [0, 1] during inference. But this method always returns in scale [0, 1]
+            # by denomralizing it at the end, because some metric functions require such a scale.
+            inputs = (inputs * 2) - 1
+            targets = (targets * 2) - 1
+        
         # Conv-Encoder
         conv_input_seq = []
         with tf.variable_scope("conv-encoder") as conv_enc_scope:
@@ -118,6 +125,11 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
 
             # convert back to shape [bs, t, h, w, c]
             packed_result = tf.pack(deconv_output_seq, axis=1)
+            
+        if self._output_activation == tf.nn.tanh:
+            # convert back to value scale [0, 1], because some metric functions require such a scale.
+            inputs = (inputs + 1) / 2
+            targets = (targets + 1) / 2
         
         return packed_result
     
@@ -238,5 +250,6 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         # add bce/mse losses here as well to see them in the evaluation
         bce = tt.loss.bce(predictions, targets)
         mse = tt.loss.mse(predictions, targets)
+        mae = tt.loss.mae(predictions, targets)
 
-        return {"bce": bce, "mse": mse, "psnr": psnr, "sharpdiff": sharpdiff, "ssim": ssim}
+        return {"bce": bce, "mse": mse, "mae": mae, "psnr": psnr, "sharpdiff": sharpdiff, "ssim": ssim}
