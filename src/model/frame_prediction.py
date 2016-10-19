@@ -10,7 +10,7 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
                  lstm_use_peepholes=True, lstm_cell_clip=None, lstm_bn_input_hidden=False, 
                  lstm_bn_hidden_hidden=False, lstm_bn_peepholes=False,
                  scheduled_sampling_decay_rate=None,
-                 main_loss=tt.loss.mse, alpha_main_loss=1.0, alpha_gdl_loss=1.0):
+                 main_loss=tt.loss.mse, alpha_main_loss=1.0, alpha_gdl_loss=1.0, alpha_ssim_loss=0.0):
         assert len(filters) == len(ksizes) and len(filters) == len(strides), "Encoder/Decoder configuration mismatch."
         
         # feature encoder/decoder
@@ -39,6 +39,7 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         self._main_loss = main_loss
         self._alpha_main_loss = alpha_main_loss
         self._alpha_gdl_loss = alpha_gdl_loss
+        self._alpha_ssim_loss = alpha_ssim_loss
 
         super(LSTMConv2DPredictionModel, self).__init__(weight_decay)
         
@@ -128,8 +129,7 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
             
         if self._output_activation == tf.nn.tanh:
             # convert back to value scale [0, 1], because some metric functions require such a scale.
-            inputs = (inputs + 1) / 2
-            targets = (targets + 1) / 2
+            packed_result = (packed_result + 1) / 2
         
         return packed_result
     
@@ -220,10 +220,34 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
                                      targets[:,tshape[1] - 1,:,:,:], name="last_frame")
         tf.add_to_collection(tt.core.LOG_LOSSES, mloss_last)
         
-        # combine both losses to optimize
+        # SSIM:
+        # split as list of element-shape [bs, h, w, c]
+        predictions_list = tf.unpack(predictions, axis=1)
+        targets_list = tf.unpack(targets, axis=1)
         
-        return tf.add(self._alpha_main_loss * mloss, self._alpha_gdl_loss * gdl_loss,
-                      name="combined_loss")
+        do_ssim_grayscale = True if predictions.get_shape().as_list()[-1] != 1 else False
+        ssim = 0.0
+        for pred, tgt in zip(predictions_list, targets_list):
+            if do_ssim_grayscale:
+                pred = tf.image.rgb_to_grayscale(pred)
+                tgt = tf.image.rgb_to_grayscale(tgt)
+            ssim += tt.loss.ssim(pred, tgt, patch_size=5)
+            
+        # average values
+        n = len(targets_list)
+        ssim_loss = tf.div(ssim, n, name="SSIM_loss")
+        tf.add_to_collection(tt.core.LOG_LOSSES, ssim_loss)
+        
+        combined_losses = [tf.mul(self._alpha_main_loss, mloss, name="main_loss")]
+        
+        if self._alpha_gdl_loss > 0:
+            combined_losses.append(tf.mul(self._alpha_gdl_loss, gdl_loss, name="gdl_loss"))
+            
+        if self._alpha_ssim_loss > 0:
+            combined_losses.append(tf.mul(self._alpha_ssim_loss, ssim_loss, name="ssim_loss"))
+        
+        # combine all losses to optimize
+        return tf.add_n(combined_losses, name="combined_loss")
     
     @tt.utils.attr.override
     def evaluation(self, predictions, targets, device_scope):
@@ -232,24 +256,62 @@ class LSTMConv2DPredictionModel(tt.model.AbstractModel):
         targets_list = tf.unpack(targets, axis=1)
         
         do_ssim_grayscale = True if predictions.get_shape().as_list()[-1] != 1 else False
-        psnr = sharpdiff = ssim = 0.0
-        for pred, tgt in zip(predictions_list, targets_list):
-            psnr += tt.image.psnr(pred, tgt)
-            sharpdiff += tt.image.sharp_diff(pred, tgt)
+        psnr = sharpdiff = ssim = ssim9 = ssim7 = ssim5 = msssim = 0.0
+        f1_psnr = f1_sharpdiff = f1_ssim5 = 0.0
+        f2_psnr = f2_sharpdiff = f2_ssim5 = 0.0
+        f1_mae = f1_mse = f2_mae = f2_mse = 0.0
+
+        for i, (pred, tgt) in enumerate(zip(predictions_list, targets_list)):
+            current_psnr = tt.image.psnr(pred, tgt)
+            current_sdiff = tt.image.sharp_diff(pred, tgt)
+            
+            
+            psnr += current_psnr
+            sharpdiff += current_sdiff
             if do_ssim_grayscale:
                 pred = tf.image.rgb_to_grayscale(pred)
                 tgt = tf.image.rgb_to_grayscale(tgt)
-            ssim += tt.image.ssim(pred, tgt)
+            ssim += tt.image.ssim(pred, tgt, patch_size=11)
+            ssim9 += tt.image.ssim(pred, tgt, patch_size=9)
+            ssim7 += tt.image.ssim(pred, tgt, patch_size=7)
+            current_ssim5 = tt.image.ssim(pred, tgt, patch_size=5)
+            ssim5 += current_ssim5
+            msssim += tt.image.ms_ssim(pred, tgt, patch_size=5,
+                                       level_weights=[0.5, 0.5])
+            # img-metrics for 1st frame
+            if i == 0:
+                f1_psnr = current_psnr
+                f1_sharpdiff = current_sdiff
+                f1_ssim5 = current_ssim5
+                f1_mae = tt.loss.mae(pred, tgt)
+                f1_mse = tt.loss.mse(pred, tgt)
+            # img-metrics for 2nd frame
+            if i == 1:
+                f2_psnr = current_psnr
+                f2_sharpdiff = current_sdiff
+                f2_ssim5 = current_ssim5
+                f2_mae = tt.loss.mae(pred, tgt)
+                f2_mse = tt.loss.mse(pred, tgt)
+                
             
         # average values
         n = len(targets_list)
         psnr /= n
         sharpdiff /= n
         ssim /= n
+        ssim9 /= n
+        ssim7 /= n
+        ssim5 /= n
+        msssim /= n
             
         # add bce/mse losses here as well to see them in the evaluation
         bce = tt.loss.bce(predictions, targets)
         mse = tt.loss.mse(predictions, targets)
         mae = tt.loss.mae(predictions, targets)
+        rsse = tt.loss.rsse(predictions, targets) # euclid-dist (other paper used 0.5 * euclid!)
 
-        return {"bce": bce, "mse": mse, "mae": mae, "psnr": psnr, "sharpdiff": sharpdiff, "ssim": ssim}
+        return {"bce": bce, "mse": mse, "mae": mae, "rsse": rsse, "psnr": psnr, "sharpdiff": sharpdiff,
+                "ssim": ssim, "ssim9": ssim9, "ssim7": ssim7, "ssim5": ssim5, "msssim": msssim,
+                "f1-psnr": f1_psnr, "f1-sharpdiff": f1_sharpdiff, "f1-ssim5": f1_ssim5,
+                "f2-psnr": f2_psnr, "f2-sharpdiff": f2_sharpdiff, "f2-ssim5": f2_ssim5,
+                "f1-mae": f1_mae, "f1-mse": f1_mse, "f2-mae": f2_mae, "f2-mse": f2_mse}
